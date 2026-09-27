@@ -85,6 +85,8 @@ Your real `GEMINI_API_KEY` never reaches the browser, and a visitor can't change
 3. Redeploy. The first request creates the tables, seeds the catalog and creates the first admin.
 4. Local dev against the same database: `npx vercel env pull .env.local`, then `npm run dev`.
 
+Demo data for showing the dashboard: **Admin → Account → Demo data** (Load / Remove buttons), or from a terminal `npm run seed:demo` adds ~90 days of sample sessions, leads, quotes, orders and customers (all tagged `demo` / `@demo.example`). Remove every demo row before going live with `npm run seed:demo -- --remove`; real data and products are never touched.
+
 Reset an admin password at any time from your computer: `npm run reset-admin -- admin new-password-123 you@example.com` (uses `DATABASE_URL` from `.env.local`).
 
 Neon's free plan keeps data permanently and sleeps when idle; the first request after a pause takes ~1 s longer. Backups: Neon keeps point-in-time history, or run `pg_dump "$DATABASE_URL" > backup.sql`.

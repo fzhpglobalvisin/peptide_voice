@@ -2,10 +2,12 @@ import { requireAdmin } from '@/lib/auth';
 import { getAdminById } from '@/lib/admin-users';
 import { mailConfigured } from '@/lib/mailer';
 import { AccountForm, PasswordForm } from '@/components/admin/SignInButton';
+import { DemoDataPanel } from '@/components/admin/DemoDataPanel';
+import { demoCounts } from '@/lib/demo-data';
 
 export default async function AccountPage() {
   const session = await requireAdmin();
-  const me = (await getAdminById(session.user.id))!;
+  const [me, demo] = await Promise.all([getAdminById(session.user.id).then((a) => a!), demoCounts()]);
 
   return (
     <div className="max-w-xl space-y-6">
@@ -30,6 +32,11 @@ export default async function AccountPage() {
       <section className="rounded-xl border border-white/10 bg-[#0a1120] p-5">
         <h2 className="mb-4 text-sm font-bold">Change password</h2>
         <PasswordForm />
+      </section>
+
+      <section id="demo-data" className="rounded-xl border border-white/10 bg-[#0a1120] p-5">
+        <h2 className="mb-3 text-sm font-bold">Demo data</h2>
+        <DemoDataPanel counts={demo} />
       </section>
     </div>
   );

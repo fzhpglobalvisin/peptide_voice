@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { requireAdmin } from '@/lib/auth';
 import { createProduct, setProductStatus, updateProduct, type ProductInput } from '@/lib/catalog';
 import { setOrderStatus } from '@/lib/analytics';
+import { loadDemoData, removeDemoData } from '@/lib/demo-data';
 import { MIN_CUSTOMER_PASSWORD, setCustomerPassword } from '@/lib/customers';
 import type { Category, Variant } from '@/lib/types';
 
@@ -80,4 +81,27 @@ export async function adminSetCustomerPassword(_prev: { error?: string; ok?: str
   await setCustomerPassword(id, pw);
   revalidatePath('/admin/customers');
   return { ok: 'Password set. Send it to the customer on WhatsApp; they can change it in My Account.' };
+}
+
+/** Demo data: load (or refresh) / remove the sample records used to show the dashboard. */
+export async function demoDataAction(_prev: { error?: string; ok?: string }, fd: FormData): Promise<{ error?: string; ok?: string }> {
+  await requireAdmin();
+  const op = String(fd.get('op'));
+  try {
+    if (op === 'load') {
+      const r = await loadDemoData();
+      revalidatePath('/admin', 'layout');
+      return { ok: `Demo data loaded: ${r.sessions} voice sessions, ${r.leads} leads, ${r.quotes} quotes, ${r.orders} orders, ${r.customers} customers.` };
+    }
+    if (op === 'remove') {
+      const r = await removeDemoData();
+      revalidatePath('/admin', 'layout');
+      const total = Object.values(r).reduce((a, b) => a + b, 0);
+      return { ok: total ? `Demo data removed (${total} sample records). Real data and products were not touched.` : 'There was no demo data to remove.' };
+    }
+    return { error: 'Unknown action.' };
+  } catch (e) {
+    console.error('demo data', e);
+    return { error: e instanceof Error ? e.message : 'Something went wrong. Please try again.' };
+  }
 }

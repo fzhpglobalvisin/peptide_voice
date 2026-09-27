@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "db:reset": "node scripts/reset-db.mjs",
     "hash-password": "node scripts/hash-password.mjs",
-    "reset-admin": "node scripts/reset-admin.mjs"
+    "reset-admin": "node scripts/reset-admin.mjs",
+    "seed:demo": "node scripts/seed-demo.mjs"
   },
   "engines": {
     "node": ">=20.9"

@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { DemoDataBanner } from '@/components/admin/DemoDataPanel';
+import { demoCounts } from '@/lib/demo-data';
 import {
   complianceBreakdown,
   funnel,
@@ -86,7 +88,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const prevSince = since - days * 86400000;
 
   // one round-trip wave instead of eight sequential queries
-  const [k, p, ts, perf, research, leadsBySource, activity, sessions, funnelSteps, statusRows, langRows, complianceRows] = await Promise.all([
+  const [k, p, ts, perf, research, leadsBySource, activity, sessions, funnelSteps, statusRows, langRows, complianceRows, demo] = await Promise.all([
     kpis(since),
     kpis(prevSince, since),
     timeSeries(since, days),
@@ -99,12 +101,20 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
     orderStatusBreakdown(since),
     languageBreakdown(since),
     complianceBreakdown(since),
+    demoCounts(),
   ]);
   const labelMode = ts.monthly ? 'month' : 'day';
   const topProducts = [...perf].filter((x) => x.views + x.cart_adds + x.orders > 0).sort((a, b) => b.views - a.views || b.cart_adds - a.cart_adds).slice(0, 7);
 
   return (
     <div className="space-y-4">
+      {demo.present && <DemoDataBanner counts={demo} />}
+      {!demo.present && activity.length === 0 && (
+        <p className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/60">
+          No activity yet. To see how the dashboard looks with data, go to{' '}
+          <Link href="/admin/account#demo-data" className="text-cyan-text underline">Account → Demo data</Link> and load sample data.
+        </p>
+      )}
       {/* Title + range */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>

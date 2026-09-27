@@ -29,7 +29,8 @@ function client(): Sql {
   const serverless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
   g.__rfsql = postgres(url, {
     max: serverless ? 3 : 10,
-    idle_timeout: 20,
+    // Keep connections open between requests: each new one costs ~5 network round trips (TLS + login).
+    idle_timeout: serverless ? 20 : 600,
     connect_timeout: 15,
     // Neon/Supabase poolers (PgBouncer, transaction mode) don't support prepared statements.
     prepare: false,
@@ -50,20 +51,29 @@ function toPg(text: string) {
   return text.replace(/\?/g, () => `$${++n}`);
 }
 
-/** Creates tables and seeds the catalog once per process (advisory lock guards concurrent cold starts). */
+/** Bump when lib/schema.ts changes, so existing databases get the new tables/indexes. */
+const SCHEMA_VERSION = 'rf-schema-1';
+
+/**
+ * Creates tables and seeds the catalog once per process. Normally a single quick query
+ * (the schema version stored as a table comment); the full setup only runs on a new/old database.
+ */
 function ready(): Promise<void> {
   if (!g.__rfready) {
-    g.__rfready = client()
-      .begin(async (tx) => {
-        await tx.unsafe('SELECT pg_advisory_xact_lock(727272)');
+    g.__rfready = (async () => {
+      const sql = client();
+      const [row] = await sql.unsafe(`SELECT obj_description(to_regclass('public.products'), 'pg_class') AS v`);
+      if (row?.v === SCHEMA_VERSION) return;
+      await sql.begin(async (tx) => {
+        await tx.unsafe('SELECT pg_advisory_xact_lock(727272)'); // concurrent cold starts wait here
         await tx.unsafe(SCHEMA);
         await seed(runner(tx));
-      })
-      .then(() => undefined)
-      .catch((e) => {
-        g.__rfready = undefined; // retry on next request
-        throw e;
+        await tx.unsafe(`COMMENT ON TABLE products IS '${SCHEMA_VERSION}'`);
       });
+    })().catch((e) => {
+      g.__rfready = undefined; // retry on next request
+      throw e;
+    });
   }
   return g.__rfready;
 }
