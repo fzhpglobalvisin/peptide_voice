@@ -8,7 +8,7 @@ export const metadata = { title: 'Reset password', robots: { index: false }, ref
 
 export default async function ResetPage({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
   const token = ((await searchParams).token ?? '').slice(0, 100);
-  const admin = adminForResetToken(token);
+  const admin = await adminForResetToken(token);
 
   if (!admin) {
     return (

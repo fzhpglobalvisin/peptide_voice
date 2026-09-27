@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { sessionDetail } from '@/lib/analytics';
 
 export default async function SessionPage({ params }: { params: Promise<{ id: string }> }) {
-  const s = sessionDetail((await params).id);
+  const s = await sessionDetail((await params).id);
   if (!s) notFound();
   const transcript = JSON.parse(s.transcript) as { role: string; text: string; at: number }[];
   let summary: Record<string, unknown> | null = null;

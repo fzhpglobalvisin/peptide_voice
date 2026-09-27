@@ -1,6 +1,5 @@
 import { getProductsBySlugs, trackEvents } from '@/lib/catalog';
-import { createQuote, getSession, rateLimit } from '@/lib/store';
-import { stmt } from '@/lib/db';
+import { createQuote, getLeadForQuote, getSession, rateLimit } from '@/lib/store';
 import { quoteText, sendCloudTemplate, waLink } from '@/lib/whatsapp';
 import { bad, clientIp, json, readJson, s, verifiedVisitor } from '@/lib/http';
 import type { CartItem } from '@/lib/types';
@@ -21,7 +20,7 @@ export async function POST(req: Request) {
   const raw = Array.isArray(b?.items) ? b!.items.slice(0, 30) : [];
   if (!raw.length) return bad('Add at least one product to the quote.');
 
-  const products = new Map(getProductsBySlugs(raw.map((i) => s(i.slug, 120))).map((p) => [p.slug, p]));
+  const products = new Map((await getProductsBySlugs(raw.map((i) => s(i.slug, 120)))).map((p) => [p.slug, p]));
   const items: CartItem[] = [];
   for (const i of raw) {
     const p = products.get(i.slug);
@@ -38,18 +37,14 @@ export async function POST(req: Request) {
   }
   if (!items.length) return bad('Those products are not available.');
 
-  const session = b?.sessionId ? getSession(s(b.sessionId, 40)) : undefined;
+  const session = b?.sessionId ? await getSession(s(b.sessionId, 40)) : undefined;
   const sessionId = session && session.visitor_id === visitor ? session.id : null;
-  const lead = b?.leadId
-    ? (stmt(`SELECT id, name, whatsapp, consent_whatsapp FROM leads WHERE id=?`).get(Number(b.leadId)) as
-        | { id: number; name: string; whatsapp: string | null; consent_whatsapp: number }
-        | undefined)
-    : undefined;
+  const lead = b?.leadId ? await getLeadForQuote(Number(b.leadId)) : undefined;
 
   const cloudConfigured = !!(process.env.WHATSAPP_CLOUD_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_TEMPLATE_NAME);
   const canCloud = cloudConfigured && !!(lead?.consent_whatsapp && lead.whatsapp);
-  const quote = createQuote(items, sessionId, lead?.id ?? null, canCloud ? 'wa_cloud' : 'wa_link');
-  trackEvents(items.map((i) => i.slug), 'quote', sessionId);
+  const quote = await createQuote(items, sessionId, lead?.id ?? null, canCloud ? 'wa_cloud' : 'wa_link');
+  await trackEvents(items.map((i) => i.slug), 'quote', sessionId);
 
   let sentViaCloud = false;
   if (canCloud) {

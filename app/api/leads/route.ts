@@ -20,9 +20,9 @@ export async function POST(req: Request) {
   if (whatsapp && !/^\+?\d[\d\s-]{6,}$/.test(whatsapp)) return bad('Please enter a WhatsApp number with country code.');
 
   const source = (SOURCES as readonly string[]).includes(String(b.source)) ? (b.source as (typeof SOURCES)[number]) : 'contact';
-  const session = b.sessionId ? getSession(s(b.sessionId, 40)) : undefined;
+  const session = b.sessionId ? await getSession(s(b.sessionId, 40)) : undefined;
 
-  const id = createLead({
+  const id = await createLead({
     sessionId: session && session.visitor_id === visitor ? session.id : null,
     name,
     email: email || null,

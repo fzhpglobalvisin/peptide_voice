@@ -20,8 +20,8 @@ export async function GET(req: Request) {
   const type = new URL(req.url).searchParams.get('type');
   const rows =
     type === 'orders'
-      ? recentOrders(10000).map((o) => ({ ...o, created_at: new Date(o.created_at).toISOString() }))
-      : recentLeads(10000).map((l) => ({ ...l, created_at: new Date(l.created_at).toISOString() }));
+      ? (await recentOrders(10000)).map((o) => ({ ...o, created_at: new Date(o.created_at).toISOString() }))
+      : (await recentLeads(10000)).map((l) => ({ ...l, created_at: new Date(l.created_at).toISOString() }));
   return new Response(csv(rows as Record<string, unknown>[]), {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',

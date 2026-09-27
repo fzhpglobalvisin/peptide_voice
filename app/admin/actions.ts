@@ -50,15 +50,15 @@ export async function saveProduct(fd: FormData) {
   const id = Number(fd.get('id'));
   const p = readProduct(fd);
   if (!p.name || !p.price_min) throw new Error('Name and price are required');
-  if (id) updateProduct(id, p);
-  else createProduct(p);
+  if (id) await updateProduct(id, p);
+  else await createProduct(p);
   refresh();
   redirect('/admin/products');
 }
 
 export async function toggleProductStatus(fd: FormData) {
   await requireAdmin();
-  setProductStatus(Number(fd.get('id')), fd.get('status') === 'retired' ? 'retired' : 'active');
+  await setProductStatus(Number(fd.get('id')), fd.get('status') === 'retired' ? 'retired' : 'active');
   refresh();
 }
 
@@ -66,7 +66,7 @@ export async function updateOrderStatus(fd: FormData) {
   await requireAdmin();
   const status = String(fd.get('status'));
   if (!STATUSES.includes(status)) return;
-  setOrderStatus(Number(fd.get('id')), status);
+  await setOrderStatus(Number(fd.get('id')), status);
   revalidatePath('/admin/leads');
 }
 
@@ -77,7 +77,7 @@ export async function adminSetCustomerPassword(_prev: { error?: string; ok?: str
   const pw = String(fd.get('password') ?? '');
   if (!id) return { error: 'Missing customer.' };
   if (pw.length < MIN_CUSTOMER_PASSWORD) return { error: `At least ${MIN_CUSTOMER_PASSWORD} characters.` };
-  setCustomerPassword(id, pw);
+  await setCustomerPassword(id, pw);
   revalidatePath('/admin/customers');
   return { ok: 'Password set. Send it to the customer on WhatsApp; they can change it in My Account.' };
 }

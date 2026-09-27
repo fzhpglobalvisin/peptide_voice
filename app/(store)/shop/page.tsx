@@ -17,7 +17,7 @@ export default async function Shop({ searchParams }: { searchParams: Promise<{ q
   const sp = await searchParams;
   const q = (sp.q ?? '').slice(0, 100);
   const category = FILTERS.some((f) => f.value && f.value === sp.category) ? (sp.category as Category) : undefined;
-  const products = q ? searchProducts(q, category, 60) : listProducts({ category });
+  const products = q ? await searchProducts(q, category, 60) : await listProducts({ category });
 
   const href = (c: string) => `/shop?${new URLSearchParams({ ...(q ? { q } : {}), ...(c ? { category: c } : {}) })}`;
 

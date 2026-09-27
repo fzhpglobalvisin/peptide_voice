@@ -5,7 +5,7 @@ import { AccountForm, PasswordForm } from '@/components/admin/SignInButton';
 
 export default async function AccountPage() {
   const session = await requireAdmin();
-  const me = getAdminById(session.user.id)!;
+  const me = (await getAdminById(session.user.id))!;
 
   return (
     <div className="max-w-xl space-y-6">

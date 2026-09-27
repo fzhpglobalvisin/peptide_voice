@@ -9,6 +9,6 @@ export async function POST(req: Request) {
   if (!b || !Array.isArray(b.slugs) || !b.type || !TYPES.includes(b.type)) return json({ ok: false }, 400);
   // Orders are recorded server-side only.
   if (b.type === 'order') return json({ ok: false }, 400);
-  trackEvents(b.slugs.map((x) => s(x, 120)), b.type, s(b.sessionId, 40) || null);
+  await trackEvents(b.slugs.map((x) => s(x, 120)), b.type, s(b.sessionId, 40) || null);
   return json({ ok: true });
 }

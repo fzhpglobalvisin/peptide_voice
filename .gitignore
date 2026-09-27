@@ -6,4 +6,3 @@ data/*.db*
 .env.local
 next-env.d.ts
 *.tsbuildinfo
-.env.example

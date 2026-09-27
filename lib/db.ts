@@ -1,58 +1,123 @@
 import 'server-only';
-import Database from 'better-sqlite3';
-import fs from 'node:fs';
-import path from 'node:path';
+import postgres from 'postgres';
 import { SCHEMA } from './schema';
 import { seed } from './seed';
 
-const g = globalThis as unknown as { __rfdb?: Database.Database };
+/**
+ * PostgreSQL connection (Neon / Supabase / Vercel Postgres / any Postgres).
+ * Set DATABASE_URL (Vercel's Neon integration also sets POSTGRES_URL).
+ *
+ * Queries use `?` placeholders (converted to $1, $2…) so the SQL reads like before.
+ */
 
-/** Single process-wide connection (WAL mode) — reused across requests and hot reloads. */
-export function db(): Database.Database {
-  if (g.__rfdb) return g.__rfdb;
-  // Vercel / other serverless hosts: the project folder is read-only; only /tmp is writable.
-  // /tmp is NOT permanent there (wiped on cold starts, not shared between instances) — demo use only.
-  const serverless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY);
-  const file = process.env.DATABASE_PATH || (serverless ? '/tmp/ridgeline.db' : path.join(process.cwd(), 'data', 'ridgeline.db'));
-  if (serverless && !file.startsWith('/tmp')) {
-    console.warn(`[db] DATABASE_PATH=${file} is probably read-only on this host; use /tmp/ridgeline.db or a server with a disk.`);
-  }
-  if (serverless && file.startsWith('/tmp')) {
-    console.warn('[db] Running on serverless storage (/tmp): products, orders and accounts reset whenever the server restarts. Use a host with a persistent disk for production.');
-  }
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const conn = new Database(file);
-  conn.pragma('journal_mode = WAL');
-  conn.pragma('synchronous = NORMAL');
-  conn.pragma('foreign_keys = ON');
-  conn.pragma('temp_store = MEMORY');
-  conn.pragma('cache_size = -16000'); // ~16MB page cache
-  conn.pragma('mmap_size = 134217728'); // 128MB
-  conn.exec(SCHEMA);
-  migrate(conn);
-  seed(conn);
-  conn.pragma('optimize');
-  g.__rfdb = conn;
-  return conn;
+type Sql = postgres.Sql<Record<string, never>>;
+type Tx = postgres.TransactionSql<Record<string, never>>;
+type Runner = Sql | Tx;
+
+const g = globalThis as unknown as { __rfsql?: Sql; __rfready?: Promise<void> };
+
+function databaseUrl() {
+  const url = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL;
+  if (!url) throw new Error('DATABASE_URL is not set. Create a free Postgres database (e.g. Neon) and add its connection string to .env / Vercel.');
+  return url;
 }
 
-/** Small additive migrations for databases created by earlier versions. */
-function migrate(conn: Database.Database) {
-  const has = (table: string, col: string) =>
-    (conn.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === col);
-  if (!has('orders', 'customer_id')) {
-    conn.exec('ALTER TABLE orders ADD COLUMN customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL');
-  }
-  conn.exec('CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id, created_at DESC)');
+function client(): Sql {
+  if (g.__rfsql) return g.__rfsql;
+  const url = databaseUrl();
+  const local = /@(localhost|127\.0\.0\.1)(:|\/)/.test(url) || url.includes('host=/');
+  const serverless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  g.__rfsql = postgres(url, {
+    max: serverless ? 3 : 10,
+    idle_timeout: 20,
+    connect_timeout: 15,
+    // Neon/Supabase poolers (PgBouncer, transaction mode) don't support prepared statements.
+    prepare: false,
+    ssl: local || /sslmode=disable/.test(url) ? false : 'require',
+    onnotice: () => {},
+    // COUNT()/SUM() come back as int8/numeric strings by default; return plain numbers.
+    types: {
+      int8: { to: 20, from: [20], serialize: (x: number) => String(x), parse: (x: string) => Number(x) },
+      numeric: { to: 1700, from: [1700], serialize: (x: number) => String(x), parse: (x: string) => Number(x) },
+    },
+  }) as unknown as Sql;
+  return g.__rfsql;
 }
 
-/** Cache prepared statements by SQL text. */
-const stmtCache = new Map<string, Database.Statement>();
-export function stmt(sql: string): Database.Statement {
-  let s = stmtCache.get(sql);
-  if (!s) {
-    s = db().prepare(sql);
-    stmtCache.set(sql, s);
+/** Convert `?` placeholders to $1..$n (our SQL never uses a literal ?). */
+function toPg(text: string) {
+  let n = 0;
+  return text.replace(/\?/g, () => `$${++n}`);
+}
+
+/** Creates tables and seeds the catalog once per process (advisory lock guards concurrent cold starts). */
+function ready(): Promise<void> {
+  if (!g.__rfready) {
+    g.__rfready = client()
+      .begin(async (tx) => {
+        await tx.unsafe('SELECT pg_advisory_xact_lock(727272)');
+        await tx.unsafe(SCHEMA);
+        await seed(runner(tx));
+      })
+      .then(() => undefined)
+      .catch((e) => {
+        g.__rfready = undefined; // retry on next request
+        throw e;
+      });
   }
-  return s;
+  return g.__rfready;
+}
+
+export interface Db {
+  /** All rows */
+  q<T = Record<string, unknown>>(text: string, params?: unknown[]): Promise<T[]>;
+  /** First row or undefined */
+  one<T = Record<string, unknown>>(text: string, params?: unknown[]): Promise<T | undefined>;
+  /** Number of affected rows */
+  exec(text: string, params?: unknown[]): Promise<number>;
+}
+
+function runner(r: Runner): Db {
+  return {
+    async q<T>(text: string, params: unknown[] = []) {
+      // plain array (not postgres.js's Result subclass) so it serialises cleanly to client components
+      return Array.from(await r.unsafe(toPg(text), params as postgres.ParameterOrJSON<never>[])) as unknown as T[];
+    },
+    async one<T>(text: string, params: unknown[] = []) {
+      const rows = (await r.unsafe(toPg(text), params as postgres.ParameterOrJSON<never>[])) as unknown as T[];
+      return rows[0];
+    },
+    async exec(text: string, params: unknown[] = []) {
+      const res = await r.unsafe(toPg(text), params as postgres.ParameterOrJSON<never>[]);
+      return res.count;
+    },
+  };
+}
+
+export async function q<T = Record<string, unknown>>(text: string, params: unknown[] = []): Promise<T[]> {
+  await ready();
+  return runner(client()).q<T>(text, params);
+}
+
+export async function one<T = Record<string, unknown>>(text: string, params: unknown[] = []): Promise<T | undefined> {
+  await ready();
+  return runner(client()).one<T>(text, params);
+}
+
+export async function exec(text: string, params: unknown[] = []): Promise<number> {
+  await ready();
+  return runner(client()).exec(text, params);
+}
+
+/** Run several statements atomically. */
+export async function tx<T>(fn: (db: Db) => Promise<T>): Promise<T> {
+  await ready();
+  return (await client().begin((t) => fn(runner(t)))) as T;
+}
+
+/** Close the pool (scripts/tests). */
+export async function closeDb() {
+  await g.__rfsql?.end({ timeout: 5 });
+  g.__rfsql = undefined;
+  g.__rfready = undefined;
 }

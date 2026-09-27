@@ -4,7 +4,6 @@ import { orderText, sendCloudTemplate, waLink } from '@/lib/whatsapp';
 import { bad, clientIp, json, readJson, s, verifiedVisitor } from '@/lib/http';
 import { DISCOUNT_CODES, type CartItem } from '@/lib/types';
 import { currentCustomer, updateCustomerDetails } from '@/lib/customers';
-import { stmt } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
@@ -28,7 +27,7 @@ export async function POST(req: Request) {
   if (!/^\+?\d[\d\s()-]{6,}$/.test(whatsapp)) return bad('Please enter your WhatsApp number with country code, e.g. +923001234567.');
 
   const raw = (Array.isArray(b.items) ? (b.items as CartItem[]) : []).slice(0, 30);
-  const products = new Map(getProductsBySlugs(raw.map((i) => s(i.slug, 120))).map((p) => [p.slug, p]));
+  const products = new Map((await getProductsBySlugs(raw.map((i) => s(i.slug, 120)))).map((p) => [p.slug, p]));
   const items: CartItem[] = [];
   for (const i of raw) {
     const p = products.get(i.slug);
@@ -45,12 +44,15 @@ export async function POST(req: Request) {
   const total = Math.round((subtotal - discount) * 100) / 100;
   const notes = s(b.notes, 600) || null;
 
-  const session = b.sessionId ? getSession(s(b.sessionId, 40)) : undefined;
+  const session = b.sessionId ? await getSession(s(b.sessionId, 40)) : undefined;
   const sessionId = session && session.visitor_id === visitor ? session.id : null;
-  const leadId = createLead({ sessionId, name, whatsapp, message: notes, source: 'checkout', consentWhatsapp: true });
-  const orderId = createOrder({
+  // Link the order to the signed-in customer (My Account → Orders).
+  const customer = await currentCustomer().catch(() => null);
+  const leadId = await createLead({ sessionId, name, whatsapp, message: notes, source: 'checkout', consentWhatsapp: true });
+  const orderId = await createOrder({
     sessionId,
     leadId,
+    customerId: customer?.id ?? null,
     items,
     subtotal,
     discountCode: rate ? code : null,
@@ -59,14 +61,11 @@ export async function POST(req: Request) {
     institution: '',
     shipAddress: notes ?? '',
   });
-  // Link the order to the signed-in customer (My Account → Orders).
-  const customer = await currentCustomer().catch(() => null);
   if (customer) {
-    stmt('UPDATE orders SET customer_id=? WHERE id=?').run(customer.id, orderId);
-    if (!customer.name || !customer.whatsapp) updateCustomerDetails(customer.id, customer.name || name, customer.whatsapp || whatsapp);
+    if (!customer.name || !customer.whatsapp) await updateCustomerDetails(customer.id, customer.name || name, customer.whatsapp || whatsapp);
   }
-  const quote = createQuote(items, sessionId, leadId, 'wa_link');
-  trackEvents(items.map((i) => i.slug), 'order', sessionId);
+  const quote = await createQuote(items, sessionId, leadId, 'wa_link');
+  await trackEvents(items.map((i) => i.slug), 'order', sessionId);
 
   let sentViaCloud = false;
   try {

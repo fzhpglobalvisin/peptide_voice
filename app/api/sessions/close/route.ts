@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
 export async function POST(req: Request) {
   const visitor = await verifiedVisitor();
   const body = await readJson<{ sessionId?: string; transcript?: ChatMessage[]; language?: string }>(req);
-  const session = body?.sessionId ? getSession(s(body.sessionId, 40)) : undefined;
+  const session = body?.sessionId ? await getSession(s(body.sessionId, 40)) : undefined;
   if (!visitor || !session || session.visitor_id !== visitor) return bad('Session not found.', 404);
   if (session.status === 'closed') return json({ ok: true });
 
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     .slice(-400)
     .map((m) => ({ id: '', role: m.role, text: m.text.slice(0, 4000), at: Number(m.at) || Date.now() }));
   const language = s(body?.language, 20) || null;
-  closeSession(session.id, transcript, language);
+  await closeSession(session.id, transcript, language);
 
   if (transcript.length && process.env.GEMINI_API_KEY) {
     after(async () => {
@@ -37,7 +37,7 @@ Do not include personal characteristics. Transcript:\n\n${text}`,
           config: { responseMimeType: 'application/json', temperature: 0.2 },
         });
         const parsed = JSON.parse(res.text || '{}');
-        saveSummary(session.id, parsed, typeof parsed.language === 'string' ? parsed.language.slice(0, 10) : null);
+        await saveSummary(session.id, parsed, typeof parsed.language === 'string' ? parsed.language.slice(0, 10) : null);
       } catch (e) {
         console.error('summary failed', e);
       }

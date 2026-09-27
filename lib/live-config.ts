@@ -8,7 +8,7 @@ export const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || 'gemini-2.5-flash';
 const PAGES = ['home', 'shop', 'coas', 'about', 'contact', 'cart', 'account'];
 const SECTIONS = ['best-sellers', 'features', 'research', 'blends', 'faq', 'newsletter'];
 
-function systemInstruction() {
+async function systemInstruction() {
   return `You are "Ridge", the voice assistant for Ridgeline Fit, a US supplier of research peptides and laboratory supplies.
 Every visitor has confirmed they are 21+ and a qualified researcher buying for in vitro / laboratory research only.
 
@@ -49,7 +49,7 @@ Every visitor has confirmed they are 21+ and a qualified researcher buying for i
 - Greet briefly on connect: introduce yourself in one sentence and ask how you can help with their research order today.
 
 ## Catalog (name [slug] category price range USD) — use slugs in tool calls
-${catalogDigest()}`;
+${await catalogDigest()}`;
 }
 
 const str = (description: string, e?: string[]) => ({ type: Type.STRING, description, ...(e ? { enum: e } : {}) });
@@ -252,10 +252,10 @@ export const functionDeclarations: FunctionDeclaration[] = [
 ];
 
 /** Config locked into the ephemeral token, so the browser can't change prompt, tools or model. */
-export function buildLiveConfig(resumeHandle?: string | null): LiveConnectConfig {
+export async function buildLiveConfig(resumeHandle?: string | null): Promise<LiveConnectConfig> {
   return {
     responseModalities: [Modality.AUDIO],
-    systemInstruction: { parts: [{ text: systemInstruction() }] },
+    systemInstruction: { parts: [{ text: await systemInstruction() }] },
     tools: [{ functionDeclarations }],
     inputAudioTranscription: {},
     outputAudioTranscription: {},

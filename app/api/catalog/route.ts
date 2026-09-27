@@ -14,11 +14,11 @@ export async function GET(req: Request) {
   const category = CATS.includes(catParam) ? (catParam as Category) : undefined;
   const slugs = u.searchParams.get('slugs')?.split(',').filter(Boolean) ?? [];
 
-  const products = slugs.length ? getProductsBySlugs(slugs) : q ? searchProducts(q, category) : listProducts({ category });
+  const products = slugs.length ? await getProductsBySlugs(slugs) : q ? await searchProducts(q, category) : await listProducts({ category });
 
   // When the assistant surfaces products, count them as AI recommendations.
   if (u.searchParams.get('ai') === '1') {
-    trackEvents(products.slice(0, 5).map((p) => p.slug), 'ai_recommend', u.searchParams.get('sessionId'));
+    await trackEvents(products.slice(0, 5).map((p) => p.slug), 'ai_recommend', u.searchParams.get('sessionId'));
   }
   return json({ products });
 }

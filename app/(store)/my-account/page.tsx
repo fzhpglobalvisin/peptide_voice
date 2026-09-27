@@ -53,7 +53,7 @@ export default async function MyAccount({ searchParams }: { searchParams: Promis
 
   // ── Signed in: dashboard / orders / details ──
   const tab = TABS.some(([k]) => k === sp.tab) ? sp.tab! : 'dashboard';
-  const orders = customerOrders(me.id);
+  const orders = await customerOrders(me.id);
   const displayName = me.name || me.email.split('@')[0];
 
   return (

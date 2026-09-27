@@ -2,8 +2,8 @@ import { listCustomers } from '@/lib/customers';
 import { money } from '@/lib/types';
 import { CustomerPasswordForm } from '@/components/admin/CustomerPasswordForm';
 
-export default function CustomersPage() {
-  const customers = listCustomers();
+export default async function CustomersPage() {
+  const customers = await listCustomers();
   return (
     <div>
       <h1 className="font-head text-2xl font-bold">Customers ({customers.length})</h1>

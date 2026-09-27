@@ -34,7 +34,7 @@ export async function customerLogin(_prev: AccountState, fd: FormData): Promise<
   const email = str(fd, 'email').trim();
   const password = str(fd, 'password');
   if (!email || !password) return { error: 'Please enter your email address and password.' };
-  const c = verifyCustomer(email, password);
+  const c = await verifyCustomer(email, password);
   if (!c) {
     await slow();
     return { error: 'Unknown email address or incorrect password.' };
@@ -54,8 +54,8 @@ export async function customerRegister(_prev: AccountState, fd: FormData): Promi
   const password = str(fd, 'password');
   if (!validEmail(email)) return { error: 'Please enter a valid email address.' };
   if (password.length < MIN_CUSTOMER_PASSWORD) return { error: `Password must be at least ${MIN_CUSTOMER_PASSWORD} characters.` };
-  if (getCustomerByEmail(email)) return { error: 'An account is already registered with that email. Please log in.' };
-  const c = createCustomer(email, password);
+  if (await getCustomerByEmail(email)) return { error: 'An account is already registered with that email. Please log in.' };
+  const c = await createCustomer(email, password);
   try {
     await startCustomerSession(c, true);
   } catch (e) {
@@ -74,7 +74,7 @@ export async function saveAccountDetails(_prev: AccountState, fd: FormData): Pro
   if (!c) redirect('/my-account');
   const whatsapp = str(fd, 'whatsapp', 30).trim();
   if (whatsapp && !/^\+?\d[\d\s()-]{6,}$/.test(whatsapp)) return { error: 'Enter your WhatsApp number with country code, e.g. +923001234567.' };
-  updateCustomerDetails(c.id, str(fd, 'name', 120), whatsapp);
+  await updateCustomerDetails(c.id, str(fd, 'name', 120), whatsapp);
   revalidatePath('/my-account');
   return { ok: 'Account details saved.' };
 }
@@ -86,7 +86,7 @@ export async function changeCustomerPassword(_prev: AccountState, fd: FormData):
   const pw = str(fd, 'password');
   if (pw.length < MIN_CUSTOMER_PASSWORD) return { error: `New password must be at least ${MIN_CUSTOMER_PASSWORD} characters.` };
   if (pw !== str(fd, 'confirm')) return { error: 'The two new passwords do not match.' };
-  setCustomerPassword(c.id, pw);
+  await setCustomerPassword(c.id, pw);
   const updated = { ...c, session_version: c.session_version + 1 };
   await startCustomerSession(updated, true);
   return { ok: 'Password changed.' };

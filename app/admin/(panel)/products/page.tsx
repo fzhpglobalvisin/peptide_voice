@@ -3,8 +3,8 @@ import { listProducts } from '@/lib/catalog';
 import { priceLabel } from '@/lib/types';
 import { toggleProductStatus } from '@/app/admin/actions';
 
-export default function ProductsAdmin() {
-  const products = listProducts({ includeRetired: true });
+export default async function ProductsAdmin() {
+  const products = await listProducts({ includeRetired: true });
   return (
     <div>
       <div className="flex items-center justify-between">

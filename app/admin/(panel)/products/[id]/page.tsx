@@ -6,7 +6,7 @@ import { saveProduct } from '@/app/admin/actions';
 export default async function EditProduct({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const isNew = id === 'new';
-  const p = isNew ? null : getProductById(Number(id));
+  const p = isNew ? null : await getProductById(Number(id));
   if (!isNew && !p) notFound();
 
   const label = 'block text-xs font-semibold text-white/70';

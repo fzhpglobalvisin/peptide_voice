@@ -2,7 +2,7 @@
 
 A fast, installable web app (PWA) that replicates the Ridgeline Fit storefront and adds a hands-free **Gemini Live** voice assistant, action cards, WhatsApp quote brochures and an analytics admin panel. The whole app is built around the store's **research-use-only** position.
 
-> **Build status:** written and checked for syntax; the SQLite schema, seed data, search and every admin report query were run and verified. The npm registry was blocked where this was produced, so run `npm install && npm run typecheck && npm run build` on your machine before deploying and fix anything the type-checker flags.
+> **Build status:** written and checked for syntax; the PostgreSQL schema, seed data, search and every admin report query were run and verified against Postgres 16. The npm registry was blocked where this was produced, so run `npm install && npm run typecheck && npm run build` on your machine before deploying and fix anything the type-checker flags.
 
 ---
 
@@ -14,9 +14,9 @@ npm install
 npm run dev                    # http://localhost:3000
 ```
 
-The SQLite database (`data/ridgeline.db`) is created and seeded automatically on the first request. `npm run db:reset` deletes it so it re-seeds.
+Data lives in **PostgreSQL** (free tier: Neon). Set `DATABASE_URL` in `.env.local`; tables are created and the catalog is seeded automatically on the first request. `npm run db:reset -- --yes` wipes everything so it re-seeds.
 
-Requirements: Node 20.9+ (better-sqlite3 compiles a native module; on Linux you may need `build-essential` and `python3`).
+Requirements: Node 20.9+ and a Postgres database (Neon, Supabase, Vercel Postgres or your own Postgres 13+).
 
 ## 2. What's in it
 
@@ -29,7 +29,7 @@ Requirements: Node 20.9+ (better-sqlite3 compiles a native module; on Linux you 
 | Hands-free app control (15 tools: navigate, scroll, search, show product, cart, action cards, pre-fill, COA lookup, research context, lead, WhatsApp quote, compliance log) | `components/voice/useAppTools.ts`, `lib/live-config.ts` |
 | Action cards: Compare Specs, Bulk/Lab Quote, Quick Checkout, View COA (pre-filled by voice) | `components/ActionCards.tsx` |
 | WhatsApp quote brochure (image page + wa.me link, optional Cloud API send after opt-in) | `app/api/quotes`, `app/(store)/quote/[id]`, `lib/whatsapp.ts` |
-| Raw SQLite schema + FTS5 catalog search, no ORM | `lib/schema.ts`, `lib/db.ts`, `lib/catalog.ts`, `lib/store.ts` |
+| Raw PostgreSQL schema + catalog search, no ORM (postgres.js) | `lib/schema.ts`, `lib/db.ts`, `lib/catalog.ts`, `lib/store.ts` |
 | Admin (username + password login): analytics, product CRUD/retire, sessions with transcript + AI summary, leads & orders, CSV export | `app/admin/*`, `lib/analytics.ts` |
 | PWA: manifest, icons, service worker, offline page | `app/manifest.ts`, `public/sw.js`, `public/icons` |
 
@@ -78,12 +78,20 @@ Your real `GEMINI_API_KEY` never reaches the browser, and a visitor can't change
 
 ## 5. Deploy
 
-SQLite needs a **persistent disk**, so use a VPS or a platform with volumes (not serverless).
+**Vercel + Neon (free)**
 
-**VPS (Ubuntu) with PM2 + Nginx**
+1. Vercel → your project → **Storage** → **Create Database** → **Neon** (free plan) → connect it to the project. This adds `DATABASE_URL` for Production, Preview and Development.
+2. Add the other variables from `.env.example` (Settings → Environment Variables), especially `AUTH_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `ADMIN_EMAIL`, `GEMINI_API_KEY`, `NEXT_PUBLIC_WHATSAPP_BUSINESS_NUMBER`, `STORE_TIMEZONE`.
+3. Redeploy. The first request creates the tables, seeds the catalog and creates the first admin.
+4. Local dev against the same database: `npx vercel env pull .env.local`, then `npm run dev`.
+
+Reset an admin password at any time from your computer: `npm run reset-admin -- admin new-password-123 you@example.com` (uses `DATABASE_URL` from `.env.local`).
+
+Neon's free plan keeps data permanently and sleeps when idle; the first request after a pause takes ~1 s longer. Backups: Neon keeps point-in-time history, or run `pg_dump "$DATABASE_URL" > backup.sql`.
+
+**VPS (Ubuntu) with PM2 + Nginx** — same app, point `DATABASE_URL` at Neon or a local Postgres.
 
 ```bash
-sudo apt install -y build-essential python3 nginx
 git clone <repo> ridgeline && cd ridgeline
 cp .env.example .env.production   # fill in
 npm ci && npm run build
@@ -91,10 +99,6 @@ npx pm2 start "npm start" --name ridgeline && npx pm2 save
 ```
 
 Nginx: proxy `https://app.yourdomain.com` → `http://127.0.0.1:3000` with HTTPS (Certbot). **HTTPS is required** — browsers only allow microphone access and service workers on secure origins.
-
-**Railway / Fly.io / Render:** mount a volume at `/data` and set `DATABASE_PATH=/data/ridgeline.db`.
-
-Back up `ridgeline.db` daily (e.g. `sqlite3 ridgeline.db ".backup /backups/rf-$(date +%F).db"`).
 
 ## 6. Installing as an app (instead of app stores)
 

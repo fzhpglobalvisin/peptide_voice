@@ -9,7 +9,7 @@ import { ShareButtons } from '@/components/site/ShareButtons';
 export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
-  const q = getQuote((await params).id);
+  const q = await getQuote((await params).id);
   return {
     title: q ? `Research Quote ${q.id}` : 'Quote',
     robots: { index: false },
@@ -19,10 +19,10 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 /** Image quote brochure linked from WhatsApp. */
 export default async function QuotePage({ params }: { params: Promise<{ id: string }> }) {
-  const q = getQuote((await params).id);
+  const q = await getQuote((await params).id);
   if (!q) notFound();
-  const products = new Map(getProductsBySlugs(q.items.map((i) => i.slug)).map((p) => [p.slug, p]));
-  const coas = listCoas();
+  const products = new Map((await getProductsBySlugs(q.items.map((i) => i.slug))).map((p) => [p.slug, p]));
+  const coas = await listCoas();
 
   return (
     <section className="mx-auto max-w-[1000px] px-4 py-10 print:text-black">

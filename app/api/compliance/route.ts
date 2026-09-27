@@ -7,8 +7,8 @@ export async function POST(req: Request) {
   const visitor = await verifiedVisitor();
   const b = await readJson<{ sessionId?: string; category?: string; excerpt?: string }>(req);
   if (!visitor || !b) return json({ ok: false }, 400);
-  const session = b.sessionId ? getSession(s(b.sessionId, 40)) : undefined;
+  const session = b.sessionId ? await getSession(s(b.sessionId, 40)) : undefined;
   const cat = (COMPLIANCE_CATEGORIES as readonly string[]).includes(b.category ?? '') ? (b.category as ComplianceCategory) : 'other';
-  logCompliance(session && session.visitor_id === visitor ? session.id : null, cat, s(b.excerpt, 300) || null);
+  await logCompliance(session && session.visitor_id === visitor ? session.id : null, cat, s(b.excerpt, 300) || null);
   return json({ ok: true });
 }

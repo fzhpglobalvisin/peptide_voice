@@ -85,14 +85,21 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const since = now - days * 86400000;
   const prevSince = since - days * 86400000;
 
-  const k = kpis(since);
-  const p = kpis(prevSince, since);
-  const ts = timeSeries(since, days);
-  const perf = productPerformance(since);
-  const research = researchBreakdown(since);
-  const leadsBySource = leadFunnel(since);
-  const activity = recentActivity(18);
-  const sessions = recentSessions(8);
+  // one round-trip wave instead of eight sequential queries
+  const [k, p, ts, perf, research, leadsBySource, activity, sessions, funnelSteps, statusRows, langRows, complianceRows] = await Promise.all([
+    kpis(since),
+    kpis(prevSince, since),
+    timeSeries(since, days),
+    productPerformance(since),
+    researchBreakdown(since),
+    leadFunnel(since),
+    recentActivity(18),
+    recentSessions(8),
+    funnel(since),
+    orderStatusBreakdown(since),
+    languageBreakdown(since),
+    complianceBreakdown(since),
+  ]);
   const labelMode = ts.monthly ? 'month' : 'day';
   const topProducts = [...perf].filter((x) => x.views + x.cart_adds + x.orders > 0).sort((a, b) => b.views - a.views || b.cart_adds - a.cart_adds).slice(0, 7);
 
@@ -154,14 +161,14 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
       {/* Funnel · order value · order status */}
       <div className="grid gap-4 lg:grid-cols-3">
         <Card title="Product funnel" subtitle="all products">
-          <Funnel steps={funnel(since)} />
+          <Funnel steps={funnelSteps} />
         </Card>
         <Card title="Order value" subtitle={ts.monthly ? 'per month' : 'per day'}>
           <ColumnChart labels={ts.labels} values={ts.value} valueMode="money" labelMode={labelMode} color={SERIES[1]} />
           <p className="mt-2 text-[11px] text-white/45">Total {money(k.order_value)} · {k.orders} orders</p>
         </Card>
         <Card title="Orders by status">
-          <Donut data={orderStatusBreakdown(since)} centerLabel="orders" />
+          <Donut data={statusRows} centerLabel="orders" />
         </Card>
       </div>
 
@@ -171,10 +178,10 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           <HBars data={topProducts.map((x) => ({ label: x.name, n: x.views, sub: `${x.orders} ord` }))} empty="No product views yet." />
         </Card>
         <Card title="Session languages">
-          <Donut data={languageBreakdown(since).map((l) => ({ label: LANGUAGES[l.label ?? 'unknown'] ?? (l.label ?? 'Not detected'), n: l.n }))} centerLabel="sessions" />
+          <Donut data={langRows.map((l) => ({ label: LANGUAGES[l.label ?? 'unknown'] ?? (l.label ?? 'Not detected'), n: l.n }))} centerLabel="sessions" />
         </Card>
         <Card title="Compliance redirects" subtitle="questions the assistant declined">
-          <Donut data={complianceBreakdown(since)} centerLabel="redirects" />
+          <Donut data={complianceRows} centerLabel="redirects" />
         </Card>
       </div>
 

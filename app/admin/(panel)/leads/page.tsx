@@ -4,9 +4,9 @@ import { updateOrderStatus } from '@/app/admin/actions';
 
 const STATUSES = ['pending_review', 'invoiced', 'paid', 'shipped', 'rejected'];
 
-export default function LeadsPage() {
-  const orders = recentOrders(100);
-  const leads = recentLeads(200);
+export default async function LeadsPage() {
+  const orders = await recentOrders(100);
+  const leads = await recentLeads(200);
   return (
     <div className="space-y-6">
       <section>

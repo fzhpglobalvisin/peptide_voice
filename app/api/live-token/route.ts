@@ -17,7 +17,7 @@ export async function POST(req: Request) {
   if (!visitor) return bad('Please complete researcher verification first.', 403);
 
   const body = await readJson<{ sessionId?: string; handle?: string }>(req);
-  const session = body?.sessionId ? getSession(s(body.sessionId, 40)) : undefined;
+  const session = body?.sessionId ? await getSession(s(body.sessionId, 40)) : undefined;
   if (!session || session.status !== 'open' || session.visitor_id !== visitor) return bad('Session not found.', 404);
 
   // Reconnects (token refresh / resumption) are allowed, but capped per session.
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
       uses: 1,
       expireTime: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
       newSessionExpireTime: new Date(Date.now() + 60 * 1000).toISOString(),
-      liveConnectConstraints: { model: LIVE_MODEL, config: buildLiveConfig(body?.handle ? s(body.handle, 400) : null) },
+      liveConnectConstraints: { model: LIVE_MODEL, config: await buildLiveConfig(body?.handle ? s(body.handle, 400) : null) },
       httpOptions: { apiVersion: 'v1alpha' },
     },
   });

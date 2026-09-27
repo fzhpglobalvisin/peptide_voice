@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { Db } from './db';
 
 type SeedProduct = [name: string, min: number, max: number, category?: 'peptide' | 'blend' | 'supply', best?: number];
 
@@ -75,33 +75,22 @@ function describe(name: string, category: string) {
   return `${name}: lyophilized research compound supplied for in vitro and controlled laboratory studies. Third-party purity testing; Certificate of Analysis available where listed. Research use only. Not for human or veterinary use.`;
 }
 
-export function seed(db: Database.Database) {
-  const count = (db.prepare('SELECT COUNT(*) AS n FROM products').get() as { n: number }).n;
-  if (count > 0) return;
+/** Fills the default catalog + COAs on an empty database (runs inside the startup transaction). */
+export async function seed(db: Db) {
+  const row = await db.one<{ n: number }>('SELECT COUNT(*)::int AS n FROM products');
+  if ((row?.n ?? 0) > 0) return;
 
-  const insertP = db.prepare(`
-    INSERT INTO products (slug, name, category, price_min, price_max, description, is_best_seller, sort_order)
-    VALUES (@slug, @name, @category, @min, @max, @description, @best, @sort)`);
-  const findId = db.prepare('SELECT id FROM products WHERE name = ?');
-  const insertC = db.prepare(`
-    INSERT INTO coas (product_id, label, batch, test_date, file_size_mb) VALUES (?, ?, ?, ?, ?)`);
-
-  db.transaction(() => {
-    CATALOG.forEach(([name, min, max, category = 'peptide', best], i) => {
-      insertP.run({
-        slug: slugify(name),
-        name,
-        category,
-        min,
-        max,
-        description: describe(name, category),
-        best: best ? 1 : 0,
-        sort: best ?? 100 + i,
-      });
-    });
-    for (const [label, batch, date, size, productName] of COAS) {
-      const row = productName ? (findId.get(productName) as { id: number } | undefined) : undefined;
-      insertC.run(row?.id ?? null, label, batch, date, size);
-    }
-  })();
+  let i = 0;
+  for (const [name, min, max, category = 'peptide', best] of CATALOG) {
+    await db.exec(
+      `INSERT INTO products (slug, name, category, price_min, price_max, description, is_best_seller, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (slug) DO NOTHING`,
+      [slugify(name), name, category, min, max, describe(name, category), best ? 1 : 0, best ?? 100 + i],
+    );
+    i++;
+  }
+  for (const [label, batch, date, size, productName] of COAS) {
+    const p = productName ? await db.one<{ id: number }>('SELECT id FROM products WHERE name = ?', [productName]) : undefined;
+    await db.exec('INSERT INTO coas (product_id, label, batch, test_date, file_size_mb) VALUES (?, ?, ?, ?, ?)', [p?.id ?? null, label, batch, date, size]);
+  }
 }

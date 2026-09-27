@@ -1,6 +1,6 @@
 import 'server-only';
 import crypto from 'node:crypto';
-import { stmt } from './db';
+import { exec, one, q } from './db';
 
 export interface AdminUser {
   id: number;
@@ -38,82 +38,82 @@ const DUMMY = hashPassword(crypto.randomBytes(12).toString('hex'));
 
 // ─────────────── Seeding from .env (first run only) ───────────────
 
-export function adminCount() {
-  return (stmt('SELECT COUNT(*) AS n FROM admin_users').get() as { n: number }).n;
+const NOW = `(floor(extract(epoch from clock_timestamp()) * 1000))::bigint`;
+
+export async function adminCount() {
+  return Number((await one<{ n: number }>('SELECT COUNT(*) AS n FROM admin_users'))?.n ?? 0);
 }
 
 /** Creates the first admin from ADMIN_USERNAME + ADMIN_PASSWORD(_HASH) + ADMIN_EMAIL if none exists yet. */
-export function ensureAdminSeeded() {
-  if (adminCount() > 0) return true;
+export async function ensureAdminSeeded() {
+  if ((await adminCount()) > 0) return true;
   const username = process.env.ADMIN_USERNAME?.trim();
   const hash = process.env.ADMIN_PASSWORD_HASH?.trim() || (process.env.ADMIN_PASSWORD ? hashPassword(process.env.ADMIN_PASSWORD) : '');
   if (!username || !hash) return false;
-  stmt('INSERT INTO admin_users (username, email, password_hash) VALUES (?, ?, ?)').run(
-    username,
-    (process.env.ADMIN_EMAIL ?? '').trim().toLowerCase(),
-    hash,
+  await exec(
+    // "WHERE NOT EXISTS" + ON CONFLICT: two cold starts at once still create exactly one admin
+    `INSERT INTO admin_users (username, email, password_hash)
+     SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM admin_users) ON CONFLICT DO NOTHING`,
+    [username, (process.env.ADMIN_EMAIL ?? '').trim().toLowerCase(), hash],
   );
   return true;
 }
 
 // ─────────────── Lookups ───────────────
 
-export const getAdminById = (id: number) => stmt(`SELECT ${COLS} FROM admin_users WHERE id=?`).get(id) as AdminUser | undefined;
-export const getAdminByUsername = (u: string) => stmt(`SELECT ${COLS} FROM admin_users WHERE username=?`).get(u.trim()) as AdminUser | undefined;
-export const getAdminByEmail = (e: string) =>
-  e.trim() ? (stmt(`SELECT ${COLS} FROM admin_users WHERE email=? AND email != ''`).get(e.trim().toLowerCase()) as AdminUser | undefined) : undefined;
+export const getAdminById = (id: number) => one<AdminUser>(`SELECT ${COLS} FROM admin_users WHERE id=?`, [id]);
+export const getAdminByUsername = (u: string) => one<AdminUser>(`SELECT ${COLS} FROM admin_users WHERE lower(username)=lower(?)`, [u.trim()]);
+export const getAdminByEmail = async (e: string) =>
+  e.trim() ? one<AdminUser>(`SELECT ${COLS} FROM admin_users WHERE lower(email)=lower(?) AND email <> '' ORDER BY id LIMIT 1`, [e.trim()]) : undefined;
 
 /** Returns the admin when username + password match, else null. Constant-ish time either way. */
-export function verifyLogin(username: string, password: string): AdminUser | null {
-  ensureAdminSeeded();
-  const user = getAdminByUsername(username);
+export async function verifyLogin(username: string, password: string): Promise<AdminUser | null> {
+  await ensureAdminSeeded();
+  // "User ID or email"
+  const user = (await getAdminByUsername(username)) ?? (username.includes('@') ? await getAdminByEmail(username) : undefined);
   const ok = checkPasswordHash(password, user?.password_hash ?? DUMMY);
   return user && ok ? user : null;
 }
 
 // ─────────────── Changes ───────────────
 
-export function setPassword(id: number, password: string) {
-  stmt(
-    `UPDATE admin_users SET password_hash=?, session_version=session_version+1, updated_at=strftime('%s','now')*1000 WHERE id=?`,
-  ).run(hashPassword(password), id);
-  stmt('DELETE FROM admin_resets WHERE admin_id=?').run(id);
+export async function setPassword(id: number, password: string) {
+  await exec(`UPDATE admin_users SET password_hash=?, session_version=session_version+1, updated_at=${NOW} WHERE id=?`, [hashPassword(password), id]);
+  await exec('DELETE FROM admin_resets WHERE admin_id=?', [id]);
 }
 
-export function setAccount(id: number, username: string, email: string) {
-  stmt(`UPDATE admin_users SET username=?, email=?, updated_at=strftime('%s','now')*1000 WHERE id=?`).run(
-    username.trim(),
-    email.trim().toLowerCase(),
-    id,
-  );
+export async function setAccount(id: number, username: string, email: string) {
+  await exec(`UPDATE admin_users SET username=?, email=?, updated_at=${NOW} WHERE id=?`, [username.trim(), email.trim().toLowerCase(), id]);
 }
 
 // ─────────────── Reset tokens ───────────────
 
 const sha = (t: string) => crypto.createHash('sha256').update(t).digest('hex');
 
-export function createResetToken(adminId: number) {
+export async function createResetToken(adminId: number) {
   const token = crypto.randomBytes(32).toString('base64url');
-  stmt('DELETE FROM admin_resets WHERE admin_id=? OR expires_at < ?').run(adminId, Date.now());
-  stmt('INSERT INTO admin_resets (token_hash, admin_id, expires_at) VALUES (?, ?, ?)').run(sha(token), adminId, Date.now() + RESET_MINUTES * 60000);
+  await exec('DELETE FROM admin_resets WHERE admin_id=? OR expires_at < ?', [adminId, Date.now()]);
+  await exec('INSERT INTO admin_resets (token_hash, admin_id, expires_at) VALUES (?, ?, ?)', [sha(token), adminId, Date.now() + RESET_MINUTES * 60000]);
   return { token, minutes: RESET_MINUTES };
 }
 
 /** The admin a valid, unused, unexpired token belongs to (does not use it up). */
-export function adminForResetToken(token: string): AdminUser | null {
+export async function adminForResetToken(token: string): Promise<AdminUser | null> {
   if (!token) return null;
-  const row = stmt('SELECT admin_id FROM admin_resets WHERE token_hash=? AND used_at IS NULL AND expires_at > ?').get(sha(token), Date.now()) as
-    | { admin_id: number }
-    | undefined;
-  return row ? getAdminById(row.admin_id) ?? null : null;
+  const row = await one<{ admin_id: number }>('SELECT admin_id FROM admin_resets WHERE token_hash=? AND used_at IS NULL AND expires_at > ?', [sha(token), Date.now()]);
+  return row ? ((await getAdminById(Number(row.admin_id))) ?? null) : null;
 }
 
 /** Uses up the token and sets the new password. Returns false if the token is no longer valid. */
-export function resetPasswordWithToken(token: string, password: string) {
-  const admin = adminForResetToken(token);
-  if (!admin) return false;
-  stmt('UPDATE admin_resets SET used_at=? WHERE token_hash=?').run(Date.now(), sha(token));
-  setPassword(admin.id, password);
+export async function resetPasswordWithToken(token: string, password: string) {
+  if (!token) return false;
+  // Claim the token atomically so it can only ever be used once.
+  const row = await one<{ admin_id: number }>(
+    'UPDATE admin_resets SET used_at=? WHERE token_hash=? AND used_at IS NULL AND expires_at > ? RETURNING admin_id',
+    [Date.now(), sha(token), Date.now()],
+  );
+  if (!row) return false;
+  await setPassword(Number(row.admin_id), password);
   return true;
 }
 
@@ -121,4 +121,21 @@ export function passwordProblem(pw: string, confirm: string): string | null {
   if (pw.length < MIN_PASSWORD) return `Password must be at least ${MIN_PASSWORD} characters.`;
   if (pw !== confirm) return 'The two passwords do not match.';
   return null;
+}
+
+// ─────────────── New admins (Create account tab) ───────────────
+
+export async function createAdmin(username: string, email: string, password: string) {
+  const r = await one<AdminUser>(`INSERT INTO admin_users (username, email, password_hash) VALUES (?, ?, ?) RETURNING ${COLS}`, [
+    username.trim(),
+    email.trim().toLowerCase(),
+    hashPassword(password),
+  ]);
+  return r!;
+}
+
+/** Usernames for the quick-pick chips on the login page (never passwords). */
+export async function adminUsernames(limit = 8): Promise<string[]> {
+  await ensureAdminSeeded();
+  return (await q<{ username: string }>('SELECT username FROM admin_users ORDER BY id LIMIT ?', [limit])).map((r) => r.username);
 }

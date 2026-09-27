@@ -9,12 +9,12 @@ const SCALE = ['single_vial', 'small_batch', 'bulk'];
 export async function POST(req: Request) {
   const visitor = await verifiedVisitor();
   const b = await readJson<Record<string, unknown>>(req);
-  const session = b?.sessionId ? getSession(s(b.sessionId, 40)) : undefined;
+  const session = b?.sessionId ? await getSession(s(b.sessionId, 40)) : undefined;
   if (!visitor || !session || session.visitor_id !== visitor) return bad('Session not found.', 404);
 
   const inst = s(b!.institution_type, 30);
   const scale = s(b!.quantity_scale, 30);
-  upsertResearchContext(session.id, {
+  await upsertResearchContext(session.id, {
     institution_type: INST.includes(inst) ? inst : undefined,
     research_area: s(b!.research_area, 200) || undefined,
     quantity_scale: SCALE.includes(scale) ? scale : undefined,

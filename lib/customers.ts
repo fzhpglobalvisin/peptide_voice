@@ -1,7 +1,7 @@
 import 'server-only';
 import crypto from 'node:crypto';
 import { cookies } from 'next/headers';
-import { stmt } from './db';
+import { exec, one, q } from './db';
 import { checkPasswordHash, hashPassword, safeEqual } from './admin-users';
 import { requestIsHttps } from './http';
 
@@ -24,44 +24,46 @@ const COLS = 'id, email, name, whatsapp, password_hash, session_version, created
 const DUMMY = hashPassword(crypto.randomBytes(12).toString('hex'));
 export const validEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
-export const getCustomer = (id: number) => stmt(`SELECT ${COLS} FROM customers WHERE id=?`).get(id) as Customer | undefined;
-export const getCustomerByEmail = (email: string) => stmt(`SELECT ${COLS} FROM customers WHERE email=?`).get(email.trim().toLowerCase()) as Customer | undefined;
+export const getCustomer = (id: number) => one<Customer>(`SELECT ${COLS} FROM customers WHERE id=?`, [id]);
+export const getCustomerByEmail = (email: string) => one<Customer>(`SELECT ${COLS} FROM customers WHERE lower(email)=lower(?)`, [email.trim()]);
 
-export function createCustomer(email: string, password: string) {
-  const r = stmt(`INSERT INTO customers (email, password_hash) VALUES (?, ?)`).run(email.trim().toLowerCase(), hashPassword(password));
-  return getCustomer(Number(r.lastInsertRowid))!;
+export async function createCustomer(email: string, password: string) {
+  const r = await one<Customer>(`INSERT INTO customers (email, password_hash) VALUES (?, ?) RETURNING ${COLS}`, [email.trim().toLowerCase(), hashPassword(password)]);
+  return r!;
 }
 
 /** Email + password check with constant-ish timing whether or not the account exists. */
-export function verifyCustomer(email: string, password: string): Customer | null {
-  const c = getCustomerByEmail(email);
+export async function verifyCustomer(email: string, password: string): Promise<Customer | null> {
+  const c = await getCustomerByEmail(email);
   const ok = checkPasswordHash(password, c?.password_hash ?? DUMMY);
   if (!c || !ok) return null;
-  stmt(`UPDATE customers SET last_login_at=? WHERE id=?`).run(Date.now(), c.id);
+  await exec(`UPDATE customers SET last_login_at=? WHERE id=?`, [Date.now(), c.id]);
   return c;
 }
 
-export function updateCustomerDetails(id: number, name: string, whatsapp: string) {
-  stmt(`UPDATE customers SET name=?, whatsapp=? WHERE id=?`).run(name.trim().slice(0, 120), whatsapp.trim().slice(0, 30), id);
+export async function updateCustomerDetails(id: number, name: string, whatsapp: string) {
+  await exec(`UPDATE customers SET name=?, whatsapp=? WHERE id=?`, [name.trim().slice(0, 120), whatsapp.trim().slice(0, 30), id]);
 }
 
-export function setCustomerPassword(id: number, password: string) {
-  stmt(`UPDATE customers SET password_hash=?, session_version=session_version+1 WHERE id=?`).run(hashPassword(password), id);
+export async function setCustomerPassword(id: number, password: string) {
+  await exec(`UPDATE customers SET password_hash=?, session_version=session_version+1 WHERE id=?`, [hashPassword(password), id]);
 }
 
-export function customerOrders(id: number) {
-  return stmt(
+export async function customerOrders(id: number) {
+  return q<{ id: number; items: string; total: number; discount_code: string | null; status: string; created_at: number }>(
     `SELECT o.id, o.items, o.total, o.discount_code, o.status, o.created_at FROM orders o WHERE o.customer_id=? ORDER BY o.created_at DESC LIMIT 100`,
-  ).all(id) as { id: number; items: string; total: number; discount_code: string | null; status: string; created_at: number }[];
+    [id],
+  );
 }
 
-export function listCustomers(limit = 500) {
-  return stmt(
+export async function listCustomers(limit = 500) {
+  return q<{ id: number; email: string; name: string; whatsapp: string; created_at: number; last_login_at: number | null; orders: number; spent: number }>(
     `SELECT c.id, c.email, c.name, c.whatsapp, c.created_at, c.last_login_at,
        (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id) AS orders,
-       (SELECT COALESCE(SUM(total),0) FROM orders o WHERE o.customer_id = c.id AND o.status != 'rejected') AS spent
+       (SELECT COALESCE(SUM(total),0) FROM orders o WHERE o.customer_id = c.id AND o.status <> 'rejected') AS spent
      FROM customers c ORDER BY c.created_at DESC LIMIT ?`,
-  ).all(limit) as { id: number; email: string; name: string; whatsapp: string; created_at: number; last_login_at: number | null; orders: number; spent: number }[];
+    [limit],
+  );
 }
 
 // ─────────────── Session cookie (HMAC-signed, like the admin login) ───────────────
@@ -107,7 +109,7 @@ export async function currentCustomer(): Promise<Customer | null> {
     if (!safeEqual(sig, sign(data))) return null;
     const t = JSON.parse(Buffer.from(data, 'base64url').toString()) as Token;
     if (!t.exp || t.exp < Date.now()) return null;
-    const c = getCustomer(t.cid);
+    const c = await getCustomer(t.cid);
     return c && c.session_version === t.v ? c : null;
   } catch {
     return null;

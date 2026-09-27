@@ -14,8 +14,8 @@ const FEATURES = [
   ['📜', 'Verified Purity', 'Each compound verified for stability and reproducibility, with Certificate of Analysis included.'],
 ];
 
-export default function Home() {
-  const best = bestSellers();
+export default async function Home() {
+  const best = await bestSellers();
   const blend = best.find((p) => p.slug === 'tirz-glp-2') ?? best[0];
   return (
     <>

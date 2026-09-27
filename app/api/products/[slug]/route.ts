@@ -5,7 +5,7 @@ export const runtime = 'nodejs';
 
 export async function GET(_req: Request, ctx: { params: Promise<{ slug: string }> }) {
   const { slug } = await ctx.params;
-  const product = getProduct(slug);
+  const product = await getProduct(slug);
   if (!product || product.status !== 'active') return bad('Not found', 404);
-  return json({ product, coas: coasForProduct(product.id) });
+  return json({ product, coas: await coasForProduct(product.id) });
 }

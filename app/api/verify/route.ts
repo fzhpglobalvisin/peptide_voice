@@ -12,7 +12,7 @@ export async function POST(req: Request) {
 
   const jar = await cookies();
   const visitorId = jar.get(VISITOR_COOKIE)?.value || newId(12);
-  recordAttestation(visitorId, req.headers.get('user-agent'));
+  await recordAttestation(visitorId, req.headers.get('user-agent'));
 
   const expiresAt = Date.now() + VERIFIED_DAYS * 86400 * 1000;
   const res = NextResponse.json({ ok: true, visitorId, expiresAt });

@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Native SQLite driver must stay out of the bundle and run in Node.
-  serverExternalPackages: ['better-sqlite3'],
+  // Postgres driver runs in Node (not bundled).
+  serverExternalPackages: ['postgres'],
   poweredByHeader: false,
   images: { unoptimized: true },
   async headers() {

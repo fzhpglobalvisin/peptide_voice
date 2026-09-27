@@ -8,6 +8,6 @@ export async function POST(req: Request) {
   const b = await readJson<{ email?: string }>(req);
   const email = s(b?.email, 200);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return bad('Please enter a valid email.');
-  subscribe(email);
+  await subscribe(email);
   return json({ ok: true });
 }

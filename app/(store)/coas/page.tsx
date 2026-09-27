@@ -5,7 +5,7 @@ import { CoaTable } from '@/components/site/CoaTable';
 export const revalidate = 60;
 export const metadata = { title: 'COAs' };
 
-export default function CoasPage() {
+export default async function CoasPage() {
   return (
     <>
       <PageHero title="COAs" />
@@ -16,7 +16,7 @@ export default function CoasPage() {
             Access current third-party testing records for available research products. Search by product name or browse the complete COA list below.
           </p>
         </div>
-        <CoaTable coas={listCoas()} />
+        <CoaTable coas={await listCoas()} />
       </section>
     </>
   );

@@ -35,10 +35,10 @@ function secret() {
 }
 
 /** Names of required settings that are missing (values are never exposed). */
-export function missingAuthConfig(): string[] {
+export async function missingAuthConfig(): Promise<string[]> {
   const missing: string[] = [];
   if ((process.env.AUTH_SECRET?.trim().length ?? 0) < 16) missing.push('AUTH_SECRET (16+ characters)');
-  if (!ensureAdminSeeded() && adminCount() === 0) {
+  if (!(await ensureAdminSeeded()) && (await adminCount()) === 0) {
     if (!process.env.ADMIN_USERNAME?.trim()) missing.push('ADMIN_USERNAME');
     if (!process.env.ADMIN_PASSWORD && !process.env.ADMIN_PASSWORD_HASH) missing.push('ADMIN_PASSWORD');
   }
@@ -53,7 +53,7 @@ export function createSessionToken(uid: number, sessionVersion: number) {
   return `${data}.${sign(data)}`;
 }
 
-function readToken(token: string | undefined): AdminSession | null {
+async function readToken(token: string | undefined): Promise<AdminSession | null> {
   if (!token) return null;
   const [data, sig] = token.split('.');
   if (!data || !sig) return null;
@@ -61,10 +61,10 @@ function readToken(token: string | undefined): AdminSession | null {
     if (!safeEqual(sig, sign(data))) return null;
     const p = JSON.parse(Buffer.from(data, 'base64url').toString()) as TokenPayload;
     if (!p.exp || p.exp < Date.now()) return null;
-    const user = getAdminById(p.uid);
+    const user = await getAdminById(p.uid);
     // A password change bumps session_version, which signs out every older login.
     if (!user || user.session_version !== p.v) return null;
-    return { user: { id: user.id, name: user.username }, exp: p.exp };
+    return { user: { id: Number(user.id), name: user.username }, exp: p.exp };
   } catch {
     return null;
   }

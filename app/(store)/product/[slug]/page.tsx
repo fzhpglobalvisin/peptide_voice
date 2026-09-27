@@ -9,7 +9,7 @@ import { ShareButtons } from '@/components/site/ShareButtons';
 export const revalidate = 60;
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
-  const p = getProduct((await params).slug);
+  const p = await getProduct((await params).slug);
   if (!p) return { title: 'Product' };
   const description = `${p.name} — ${priceLabel(p)}. Research compound for laboratory use only. Not for human or veterinary use.`;
   // Rich previews when the link is shared on WhatsApp, Facebook, X, Telegram…
@@ -22,9 +22,9 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 }
 
 export default async function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
-  const p = getProduct((await params).slug);
+  const p = await getProduct((await params).slug);
   if (!p || p.status !== 'active') notFound();
-  const coas = coasForProduct(p.id);
+  const coas = await coasForProduct(p.id);
 
   return (
     <section className="mx-auto grid max-w-[1140px] gap-8 px-4 py-10 sm:grid-cols-2">
