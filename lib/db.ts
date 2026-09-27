@@ -10,7 +10,16 @@ const g = globalThis as unknown as { __rfdb?: Database.Database };
 /** Single process-wide connection (WAL mode) — reused across requests and hot reloads. */
 export function db(): Database.Database {
   if (g.__rfdb) return g.__rfdb;
-  const file = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'ridgeline.db');
+  // Vercel / other serverless hosts: the project folder is read-only; only /tmp is writable.
+  // /tmp is NOT permanent there (wiped on cold starts, not shared between instances) — demo use only.
+  const serverless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY);
+  const file = process.env.DATABASE_PATH || (serverless ? '/tmp/ridgeline.db' : path.join(process.cwd(), 'data', 'ridgeline.db'));
+  if (serverless && !file.startsWith('/tmp')) {
+    console.warn(`[db] DATABASE_PATH=${file} is probably read-only on this host; use /tmp/ridgeline.db or a server with a disk.`);
+  }
+  if (serverless && file.startsWith('/tmp')) {
+    console.warn('[db] Running on serverless storage (/tmp): products, orders and accounts reset whenever the server restarts. Use a host with a persistent disk for production.');
+  }
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const conn = new Database(file);
   conn.pragma('journal_mode = WAL');
